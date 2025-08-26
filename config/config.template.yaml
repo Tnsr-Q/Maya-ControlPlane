@@ -1,0 +1,88 @@
+# Maya-ControlPlane Configuration Template
+# Copy this file to config.yaml and fill in your actual values
+
+# Maya API Configuration (Beta)
+maya:
+  base_url: "https://api.maya.beta.com"  # Placeholder URL
+  api_key: "YOUR_MAYA_API_KEY"
+  version: "v1"
+  timeout: 30
+  retry_attempts: 3
+
+# Social Media Platform APIs
+platforms:
+  twitter:
+    api_key: "YOUR_TWITTER_API_KEY"
+    api_secret: "YOUR_TWITTER_API_SECRET"
+    access_token: "YOUR_TWITTER_ACCESS_TOKEN"
+    access_token_secret: "YOUR_TWITTER_ACCESS_TOKEN_SECRET"
+    bearer_token: "YOUR_TWITTER_BEARER_TOKEN"
+    
+  youtube:
+    client_id: "YOUR_YOUTUBE_CLIENT_ID"
+    client_secret: "YOUR_YOUTUBE_CLIENT_SECRET"
+    refresh_token: "YOUR_YOUTUBE_REFRESH_TOKEN"
+    
+  tiktok:
+    client_key: "YOUR_TIKTOK_CLIENT_KEY"
+    client_secret: "YOUR_TIKTOK_CLIENT_SECRET"
+    access_token: "YOUR_TIKTOK_ACCESS_TOKEN"
+
+# AI Services
+ai_services:
+  cerebras:
+    api_key: "YOUR_CEREBRAS_API_KEY"
+    base_url: "https://api.cerebras.ai"
+    model: "llama3.1-70b"
+    
+  openai:
+    api_key: "YOUR_OPENAI_API_KEY"
+    model: "gpt-4"
+    
+  anthropic:
+    api_key: "YOUR_ANTHROPIC_API_KEY"
+    model: "claude-3-sonnet"
+
+# Application Settings
+app:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  workers: 4
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  file: "logs/maya.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# Redis Configuration
+redis:
+  host: "redis"
+  port: 6379
+  db: 0
+  password: null
+
+# Webhook Configuration
+webhooks:
+  secret: "YOUR_WEBHOOK_SECRET"
+  endpoints:
+    - "/webhook/twitter"
+    - "/webhook/youtube"
+    - "/webhook/tiktok"
+
+# Experimental Features
+experiments:
+  enabled: true
+  ab_testing: true
+  feedback_collection: true
+  audio_first_mode: true
+
+# Rate Limiting
+rate_limits:
+  twitter: 300  # requests per 15 minutes
+  youtube: 10000  # requests per day
+  tiktok: 1000  # requests per day
+  cerebras: 100  # requests per minute
