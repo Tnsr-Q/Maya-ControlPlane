@@ -29,11 +29,11 @@ class YouTubeAdapter:
         Args:
             config: YouTube API configuration including credentials
         """
-        self.config = config
-        self.api_key = config.get('api_key')
-        self.client_id = config.get('client_id')
-        self.client_secret = config.get('client_secret')
-        self.refresh_token = config.get('refresh_token')
+        self.config = config or {}  # Handle None config
+        self.api_key = self.config.get('api_key')
+        self.client_id = self.config.get('client_id')
+        self.client_secret = self.config.get('client_secret')
+        self.refresh_token = self.config.get('refresh_token')
         
         # Initialize in stub mode if no credentials
         self.stub_mode = not self._has_credentials()

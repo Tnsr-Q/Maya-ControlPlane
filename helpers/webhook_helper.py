@@ -26,18 +26,18 @@ class WebhookHelper:
         Args:
             config: Webhook configuration including endpoints and settings
         """
-        self.config = config
-        self.endpoints = config.get('endpoints', {})
-        self.default_timeout = config.get('timeout', 30)
-        self.retry_count = config.get('retry_count', 3)
-        self.enabled = config.get('enabled', True)
+        self.config = config or {}  # Handle None config
+        self.endpoints = self.config.get('endpoints', {})
+        self.default_timeout = self.config.get('timeout', 30)
+        self.retry_count = self.config.get('retry_count', 3)
+        self.enabled = self.config.get('enabled', True)
         
         # Event handlers
         self.handlers: Dict[str, List[Callable]] = {}
         
         logger.info(
             "Webhook helper initialized",
-            endpoints_count=len(self.endpoints),
+            endpoints_count=len(self.endpoints) if self.endpoints else 0,
             enabled=self.enabled
         )
     
@@ -82,7 +82,7 @@ class WebhookHelper:
         results = []
         
         # Send to specific endpoint or all configured endpoints
-        targets = [endpoint] if endpoint else list(self.endpoints.keys())
+        targets = [endpoint] if endpoint else list(self.endpoints.keys() if self.endpoints else [])
         
         for target in targets:
             if target not in self.endpoints:
@@ -194,7 +194,7 @@ class WebhookHelper:
         return {
             "healthy": True,
             "enabled": self.enabled,
-            "endpoints_configured": len(self.endpoints),
+            "endpoints_configured": len(self.endpoints) if self.endpoints else 0,
             "handlers_registered": sum(len(handlers) for handlers in self.handlers.values()),
             "message": "Webhook helper operational",
             "timestamp": datetime.utcnow().isoformat()

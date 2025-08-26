@@ -25,10 +25,10 @@ class TikTokAdapter:
         Args:
             config: TikTok API configuration including credentials
         """
-        self.config = config
-        self.api_key = config.get('api_key')
-        self.api_secret = config.get('api_secret')
-        self.access_token = config.get('access_token')
+        self.config = config or {}  # Handle None config
+        self.api_key = self.config.get('api_key')
+        self.api_secret = self.config.get('api_secret')
+        self.access_token = self.config.get('access_token')
         
         # Initialize in stub mode if no credentials
         self.stub_mode = not self._has_credentials()

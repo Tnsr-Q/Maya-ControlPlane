@@ -59,10 +59,10 @@ class CerebrasHelper:
         Args:
             config: Cerebras API configuration
         """
-        self.config = config
-        self.api_key = config.get('api_key')
-        self.base_url = config.get('base_url', 'https://api.cerebras.ai/v1')
-        self.timeout = config.get('timeout', 60)
+        self.config = config or {}  # Handle None config
+        self.api_key = self.config.get('api_key')
+        self.base_url = self.config.get('base_url', 'https://api.cerebras.ai/v1')
+        self.timeout = self.config.get('timeout', 60)
         
         # Tool registry
         self.registered_tools: Dict[str, callable] = {}
