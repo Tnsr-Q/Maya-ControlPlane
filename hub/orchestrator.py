@@ -1,1 +1,378 @@
-\"\"\"\nMaya Control Plane Orchestrator\n\nCentral orchestration system that routes Maya intents to appropriate adapters and helpers.\nManages the flow of requests between Maya API, social platforms, and AI services.\n\"\"\"\n\nimport asyncio\nimport logging\nfrom typing import Dict, Any, Optional, List\nfrom datetime import datetime\nimport yaml\nfrom pathlib import Path\n\nfrom fastapi import FastAPI, HTTPException, BackgroundTasks\nfrom pydantic import BaseModel\nimport structlog\n\nfrom stubs.maya_stub import call_maya\nfrom stubs.schemas import Campaign, Post, Event\nfrom adapters.twitter_adapter import TwitterAdapter\nfrom adapters.youtube_adapter import YouTubeAdapter\nfrom adapters.tiktok_adapter import TikTokAdapter\nfrom src.adapters.youtube_adapter_v2 import YouTubeAdapterV2\nfrom src.maya_cp.helpers.cerebras_helper import CerebrasHelper, create_cerebras_helper, get_model_recommendations\nfrom helpers.webhook_helper import WebhookHelper\n\n\n# Configure structured logging\nstructlog.configure(\n    processors=[\n        structlog.stdlib.filter_by_level,\n        structlog.stdlib.add_logger_name,\n        structlog.stdlib.add_log_level,\n        structlog.stdlib.PositionalArgumentsFormatter(),\n        structlog.processors.TimeStamper(fmt=\"iso\"),\n        structlog.processors.StackInfoRenderer(),\n        structlog.processors.format_exc_info,\n        structlog.processors.UnicodeDecoder(),\n        structlog.processors.JSONRenderer()\n    ],\n    context_class=dict,\n    logger_factory=structlog.stdlib.LoggerFactory(),\n    wrapper_class=structlog.stdlib.BoundLogger,\n    cache_logger_on_first_use=True,\n)\n\nlogger = structlog.get_logger()\n\n\nclass OrchestrationRequest(BaseModel):\n    \"\"\"Request model for orchestration operations\"\"\"\n    intent: str\n    platform: Optional[str] = None\n    content: Optional[Dict[str, Any]] = None\n    campaign_id: Optional[str] = None\n    priority: int = 1\n    metadata: Optional[Dict[str, Any]] = None\n\n\nclass OrchestrationResponse(BaseModel):\n    \"\"\"Response model for orchestration operations\"\"\"\n    success: bool\n    message: str\n    data: Optional[Dict[str, Any]] = None\n    timestamp: datetime\n    request_id: str\n\n\nclass MayaOrchestrator:\n    \"\"\"\n    Central orchestrator for Maya control plane operations.\n    \n    Routes requests between Maya API, social platforms, and AI services\n    based on intent analysis and platform requirements.\n    \"\"\"\n    \n    def __init__(self, config_path: str = \"config/config.yaml\"):\n        self.config = self._load_config(config_path)\n        self.adapters = {}\n        self.helpers = {}\n        self.app = FastAPI(\n            title=\"Maya Control Plane\",\n            description=\"AI-powered social media orchestration system\",\n            version=\"0.1.0\"\n        )\n        \n        # Initialize components asynchronously\n        self._components_initialized = False\n        self._setup_routes()\n        \n        logger.info(\"Maya Orchestrator initialized\", config_loaded=bool(self.config))\n    \n    async def initialize(self):\n        \"\"\"Initialize components asynchronously\"\"\"\n        if not self._components_initialized:\n            await self._initialize_components()\n            self._components_initialized = True\n    \n    def _load_config(self, config_path: str) -> Dict[str, Any]:\n        \"\"\"Load configuration from YAML file\"\"\"\n        try:\n            with open(config_path, 'r') as f:\n                return yaml.safe_load(f)\n        except FileNotFoundError:\n            logger.warning(\"Config file not found, using defaults\", path=config_path)\n            return {}\n        except Exception as e:\n            logger.error(\"Failed to load config\", error=str(e))\n            return {}\n    \n    async def _initialize_components(self):\n        \"\"\"Initialize adapters and helpers\"\"\"\n        try:\n            # Initialize platform adapters\n            self.adapters['twitter'] = TwitterAdapter(self.config.get('platforms', {}).get('twitter', {}))\n            self.adapters['youtube'] = YouTubeAdapterV2(self.config.get('platforms', {}).get('youtube', {}))\n            self.adapters['tiktok'] = TikTokAdapter(self.config.get('platforms', {}).get('tiktok', {}))\n            \n            # Initialize helpers with advanced Cerebras integration\n            cerebras_config = self.config.get('ai_services', {}).get('cerebras', {})\n            self.helpers['cerebras'] = await create_cerebras_helper(cerebras_config)\n            self.helpers['webhook'] = WebhookHelper(self.config.get('webhooks', {}))\n            \n            # Load Cerebras configuration from dedicated config file\n            cerebras_yaml_path = Path(\"config/cerebras.yaml\")\n            if cerebras_yaml_path.exists():\n                with open(cerebras_yaml_path, 'r') as f:\n                    cerebras_full_config = yaml.safe_load(f)\n                    # Update helper with full configuration\n                    self.helpers['cerebras'].config.update(cerebras_full_config)\n                    logger.info(\"Loaded Cerebras configuration\", config_file=str(cerebras_yaml_path))\n            \n            logger.info(\"Components initialized successfully\", \n                       adapters=len(self.adapters), \n                       helpers=len(self.helpers),\n                       cerebras_tools=len(self.helpers['cerebras'].registered_tools))\n            \n        except Exception as e:\n            logger.error(\"Failed to initialize components\", error=str(e))\n            raise\n    \n    def _setup_routes(self):\n        \"\"\"Setup FastAPI routes\"\"\"\n        \n        # Include YouTube routes\n        try:\n            from src.orchestrator.routes.youtube import router as youtube_router\n            self.app.include_router(youtube_router)\n            logger.info(\"YouTube routes included successfully\")\n        except ImportError as e:\n            logger.warning(f\"Failed to import YouTube routes: {e}\")\n        \n        # Include Twitter routes if they exist\n        try:\n            from src.orchestrator.routes.twitter import router as twitter_router\n            self.app.include_router(twitter_router)\n            logger.info(\"Twitter routes included successfully\")\n        except ImportError:\n            logger.info(\"Twitter routes not found, skipping\")\n        \n        @self.app.get(\"/health\")\n        async def health_check():\n            \"\"\"Health check endpoint\"\"\"\n            await self.initialize()  # Ensure components are initialized\n            \n            # Check Cerebras health\n            cerebras_health = await self.helpers['cerebras'].health_check()\n            \n            return {\n                \"status\": \"healthy\", \n                \"timestamp\": datetime.utcnow(),\n                \"components\": {\n                    \"cerebras\": cerebras_health,\n                    \"adapters\": list(self.adapters.keys()),\n                    \"helpers\": list(self.helpers.keys())\n                }\n            }\n        \n        @self.app.post(\"/orchestrate\", response_model=OrchestrationResponse)\n        async def orchestrate_request(request: OrchestrationRequest, background_tasks: BackgroundTasks):\n            \"\"\"Main orchestration endpoint\"\"\"\n            await self.initialize()  # Ensure components are initialized\n            return await self.process_request(request, background_tasks)\n        \n        @self.app.post(\"/cerebras/generate\")\n        async def cerebras_generate(request: Dict[str, Any]):\n            \"\"\"Advanced Cerebras text generation endpoint\"\"\"\n            await self.initialize()\n            try:\n                from src.maya_cp.helpers.cerebras_helper import GenerationConfig\n                \n                messages = request.get(\"messages\", [])\n                config_data = request.get(\"config\", {})\n                stream = request.get(\"stream\", False)\n                \n                # Create generation config\n                config = GenerationConfig(**config_data) if config_data else None\n                \n                result = await self.helpers['cerebras'].generate_text(messages, config, stream)\n                return result\n                \n            except Exception as e:\n                logger.error(\"Cerebras generation failed\", error=str(e))\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.post(\"/cerebras/embeddings\")\n        async def cerebras_embeddings(request: Dict[str, Any]):\n            \"\"\"Cerebras embeddings generation endpoint\"\"\"\n            await self.initialize()\n            try:\n                from src.maya_cp.helpers.cerebras_helper import EmbeddingConfig\n                \n                texts = request.get(\"texts\", [])\n                config_data = request.get(\"config\", {})\n                \n                # Create embedding config\n                config = EmbeddingConfig(**config_data) if config_data else None\n                \n                result = await self.helpers['cerebras'].generate_embeddings(texts, config)\n                return result\n                \n            except Exception as e:\n                logger.error(\"Cerebras embeddings failed\", error=str(e))\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.post(\"/cerebras/tools/execute\")\n        async def cerebras_execute_tool(request: Dict[str, Any]):\n            \"\"\"Execute Cerebras tool\"\"\"\n            await self.initialize()\n            try:\n                tool_name = request.get(\"tool_name\")\n                parameters = request.get(\"parameters\", {})\n                \n                result = await self.helpers['cerebras'].execute_tool(tool_name, parameters)\n                return result\n                \n            except Exception as e:\n                logger.error(\"Cerebras tool execution failed\", error=str(e))\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.get(\"/cerebras/models\")\n        async def get_cerebras_models():\n            \"\"\"Get available Cerebras models with recommendations\"\"\"\n            await self.initialize()\n            try:\n                models = await self.helpers['cerebras'].list_models()\n                recommendations = get_model_recommendations()\n                \n                return {\n                    \"models\": models,\n                    \"recommendations\": recommendations\n                }\n                \n            except Exception as e:\n                logger.error(\"Failed to get Cerebras models\", error=str(e))\n                raise HTTPException(status_code=500, detail=str(e))\n    \n    async def process_request(self, request: OrchestrationRequest, background_tasks: BackgroundTasks) -> OrchestrationResponse:\n        \"\"\"Process orchestration request\"\"\"\n        request_id = f\"req_{datetime.utcnow().timestamp()}\"\n        \n        try:\n            logger.info(\"Processing orchestration request\", \n                       intent=request.intent, \n                       platform=request.platform,\n                       request_id=request_id)\n            \n            # Route based on intent and platform\n            if request.platform == \"twitter\":\n                result = await self._handle_twitter_request(request)\n            elif request.platform == \"youtube\":\n                result = await self._handle_youtube_request(request)\n            elif request.platform == \"tiktok\":\n                result = await self._handle_tiktok_request(request)\n            else:\n                # Multi-platform or general request\n                result = await self._handle_general_request(request)\n            \n            return OrchestrationResponse(\n                success=True,\n                message=\"Request processed successfully\",\n                data=result,\n                timestamp=datetime.utcnow(),\n                request_id=request_id\n            )\n            \n        except Exception as e:\n            logger.error(\"Request processing failed\", \n                        error=str(e), \n                        request_id=request_id)\n            \n            return OrchestrationResponse(\n                success=False,\n                message=f\"Request failed: {str(e)}\",\n                data=None,\n                timestamp=datetime.utcnow(),\n                request_id=request_id\n            )\n    \n    async def _handle_twitter_request(self, request: OrchestrationRequest) -> Dict[str, Any]:\n        \"\"\"Handle Twitter-specific requests\"\"\"\n        adapter = self.adapters['twitter']\n        \n        if request.intent == \"post\":\n            return await adapter.create_post(request.content)\n        elif request.intent == \"analyze\":\n            return await adapter.analyze_engagement(request.content)\n        else:\n            raise ValueError(f\"Unknown Twitter intent: {request.intent}\")\n    \n    async def _handle_youtube_request(self, request: OrchestrationRequest) -> Dict[str, Any]:\n        \"\"\"Handle YouTube-specific requests\"\"\"\n        adapter = self.adapters['youtube']\n        \n        if request.intent == \"upload\":\n            return await adapter.upload_video(request.content)\n        elif request.intent == \"analyze\":\n            return await adapter.get_channel_analytics(request.content)\n        else:\n            raise ValueError(f\"Unknown YouTube intent: {request.intent}\")\n    \n    async def _handle_tiktok_request(self, request: OrchestrationRequest) -> Dict[str, Any]:\n        \"\"\"Handle TikTok-specific requests\"\"\"\n        adapter = self.adapters['tiktok']\n        \n        if request.intent == \"post\":\n            return await adapter.create_post(request.content)\n        elif request.intent == \"analyze\":\n            return await adapter.analyze_performance(request.content)\n        else:\n            raise ValueError(f\"Unknown TikTok intent: {request.intent}\")\n    \n    async def _handle_general_request(self, request: OrchestrationRequest) -> Dict[str, Any]:\n        \"\"\"Handle general or multi-platform requests\"\"\"\n        if request.intent == \"campaign\":\n            return await self._create_campaign(request.content)\n        elif request.intent == \"analyze_all\":\n            return await self._analyze_all_platforms(request.content)\n        else:\n            raise ValueError(f\"Unknown general intent: {request.intent}\")\n    \n    async def _create_campaign(self, content: Dict[str, Any]) -> Dict[str, Any]:\n        \"\"\"Create multi-platform campaign\"\"\"\n        # Implementation for campaign creation\n        return {\"campaign_id\": \"camp_123\", \"status\": \"created\"}\n    \n    async def _analyze_all_platforms(self, content: Dict[str, Any]) -> Dict[str, Any]:\n        \"\"\"Analyze performance across all platforms\"\"\"\n        results = {}\n        \n        for platform, adapter in self.adapters.items():\n            try:\n                if hasattr(adapter, 'get_analytics'):\n                    results[platform] = await adapter.get_analytics()\n            except Exception as e:\n                logger.error(f\"Failed to get {platform} analytics\", error=str(e))\n                results[platform] = {\"error\": str(e)}\n        \n        return results\n\n\n# Global orchestrator instance\norchestrator = None\n\ndef get_orchestrator() -> MayaOrchestrator:\n    \"\"\"Get global orchestrator instance\"\"\"\n    global orchestrator\n    if orchestrator is None:\n        orchestrator = MayaOrchestrator()\n    return orchestrator\n\n\nif __name__ == \"__main__\":\n    import uvicorn\n    \n    app = get_orchestrator().app\n    uvicorn.run(app, host=\"0.0.0.0\", port=8000)
+"""
+Maya Control Plane Orchestrator
+
+Central orchestration system that routes Maya intents to appropriate adapters and helpers.
+Manages the flow of requests between Maya API, social platforms, and AI services.
+"""
+
+import asyncio
+import logging
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+import yaml
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+import structlog
+
+from stubs.maya_stub import call_maya
+from stubs.schemas import Campaign, Post, Event
+from adapters.twitter_adapter import TwitterAdapter
+from adapters.youtube_adapter import YouTubeAdapter
+from adapters.tiktok_adapter import TikTokAdapter
+from src.adapters.youtube_adapter_v2 import YouTubeAdapterV2
+from src.maya_cp.helpers.cerebras_helper import CerebrasHelper, create_cerebras_helper, get_model_recommendations
+from helpers.webhook_helper import WebhookHelper
+
+
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger()
+
+
+class OrchestrationRequest(BaseModel):
+    """Request model for orchestration operations"""
+    intent: str
+    platform: Optional[str] = None
+    content: Optional[Dict[str, Any]] = None
+    campaign_id: Optional[str] = None
+    priority: int = 1
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class OrchestrationResponse(BaseModel):
+    """Response model for orchestration operations"""
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    timestamp: datetime
+    request_id: str
+
+
+class MayaOrchestrator:
+    """
+    Central orchestrator for Maya control plane operations.
+    
+    Routes requests between Maya API, social platforms, and AI services
+    based on intent analysis and platform requirements.
+    """
+    
+    def __init__(self, config_path: str = "config/config.yaml"):
+        self.config = self._load_config(config_path)
+        self.adapters = {}
+        self.helpers = {}
+        self.app = FastAPI(
+            title="Maya Control Plane",
+            description="AI-powered social media orchestration system",
+            version="0.1.0"
+        )
+        
+        # Initialize components asynchronously
+        self._components_initialized = False
+        self._setup_routes()
+        
+        logger.info("Maya Orchestrator initialized", config_loaded=bool(self.config))
+    
+    async def initialize(self):
+        """Initialize components asynchronously"""
+        if not self._components_initialized:
+            await self._initialize_components()
+            self._components_initialized = True
+    
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        """Load configuration from YAML file"""
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            logger.warning("Config file not found, using defaults", path=config_path)
+            return {}
+        except Exception as e:
+            logger.error("Failed to load config", error=str(e))
+            return {}
+    
+    async def _initialize_components(self):
+        """Initialize adapters and helpers"""
+        try:
+            # Initialize platform adapters
+            self.adapters['twitter'] = TwitterAdapter(self.config.get('platforms', {}).get('twitter', {}))
+            self.adapters['youtube'] = YouTubeAdapterV2(self.config.get('platforms', {}).get('youtube', {}))
+            self.adapters['tiktok'] = TikTokAdapter(self.config.get('platforms', {}).get('tiktok', {}))
+            
+            # Initialize helpers with advanced Cerebras integration
+            cerebras_config = self.config.get('ai_services', {}).get('cerebras', {})
+            self.helpers['cerebras'] = await create_cerebras_helper(cerebras_config)
+            self.helpers['webhook'] = WebhookHelper(self.config.get('webhooks', {}))
+            
+            # Load Cerebras configuration from dedicated config file
+            cerebras_yaml_path = Path("config/cerebras.yaml")
+            if cerebras_yaml_path.exists():
+                with open(cerebras_yaml_path, 'r') as f:
+                    cerebras_full_config = yaml.safe_load(f)
+                    # Update helper with full configuration
+                    self.helpers['cerebras'].config.update(cerebras_full_config)
+                    logger.info("Loaded Cerebras configuration", config_file=str(cerebras_yaml_path))
+            
+            logger.info("Components initialized successfully", 
+                       adapters=len(self.adapters), 
+                       helpers=len(self.helpers),
+                       cerebras_tools=len(self.helpers['cerebras'].registered_tools))
+            
+        except Exception as e:
+            logger.error("Failed to initialize components", error=str(e))
+            raise
+    
+    def _setup_routes(self):
+        """Setup FastAPI routes"""
+        
+        # Include YouTube routes
+        try:
+            from src.orchestrator.routes.youtube import router as youtube_router
+            self.app.include_router(youtube_router)
+            logger.info("YouTube routes included successfully")
+        except ImportError as e:
+            logger.warning(f"Failed to import YouTube routes: {e}")
+        
+        # Include Twitter routes if they exist
+        try:
+            from src.orchestrator.routes.twitter import router as twitter_router
+            self.app.include_router(twitter_router)
+            logger.info("Twitter routes included successfully")
+        except ImportError:
+            logger.info("Twitter routes not found, skipping")
+        
+        @self.app.get("/health")
+        async def health_check():
+            """Health check endpoint"""
+            await self.initialize()  # Ensure components are initialized
+            
+            # Check Cerebras health
+            cerebras_health = await self.helpers['cerebras'].health_check()
+            
+            return {
+                "status": "healthy", 
+                "timestamp": datetime.utcnow(),
+                "components": {
+                    "cerebras": cerebras_health,
+                    "adapters": list(self.adapters.keys()),
+                    "helpers": list(self.helpers.keys())
+                }
+            }
+        
+        @self.app.post("/orchestrate", response_model=OrchestrationResponse)
+        async def orchestrate_request(request: OrchestrationRequest, background_tasks: BackgroundTasks):
+            """Main orchestration endpoint"""
+            await self.initialize()  # Ensure components are initialized
+            return await self.process_request(request, background_tasks)
+        
+        @self.app.post("/cerebras/generate")
+        async def cerebras_generate(request: Dict[str, Any]):
+            """Advanced Cerebras text generation endpoint"""
+            await self.initialize()
+            try:
+                from src.maya_cp.helpers.cerebras_helper import GenerationConfig
+                
+                messages = request.get("messages", [])
+                config_data = request.get("config", {})
+                stream = request.get("stream", False)
+                
+                # Create generation config
+                config = GenerationConfig(**config_data) if config_data else None
+                
+                result = await self.helpers['cerebras'].generate_text(messages, config, stream)
+                return result
+                
+            except Exception as e:
+                logger.error("Cerebras generation failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/cerebras/embeddings")
+        async def cerebras_embeddings(request: Dict[str, Any]):
+            """Cerebras embeddings generation endpoint"""
+            await self.initialize()
+            try:
+                from src.maya_cp.helpers.cerebras_helper import EmbeddingConfig
+                
+                texts = request.get("texts", [])
+                config_data = request.get("config", {})
+                
+                # Create embedding config
+                config = EmbeddingConfig(**config_data) if config_data else None
+                
+                result = await self.helpers['cerebras'].generate_embeddings(texts, config)
+                return result
+                
+            except Exception as e:
+                logger.error("Cerebras embeddings failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/cerebras/tools/execute")
+        async def cerebras_execute_tool(request: Dict[str, Any]):
+            """Execute Cerebras tool"""
+            await self.initialize()
+            try:
+                tool_name = request.get("tool_name")
+                parameters = request.get("parameters", {})
+                
+                result = await self.helpers['cerebras'].execute_tool(tool_name, parameters)
+                return result
+                
+            except Exception as e:
+                logger.error("Cerebras tool execution failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/cerebras/models")
+        async def get_cerebras_models():
+            """Get available Cerebras models with recommendations"""
+            await self.initialize()
+            try:
+                models = await self.helpers['cerebras'].list_models()
+                recommendations = get_model_recommendations()
+                
+                return {
+                    "models": models,
+                    "recommendations": recommendations
+                }
+                
+            except Exception as e:
+                logger.error("Failed to get Cerebras models", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+    
+    async def process_request(self, request: OrchestrationRequest, background_tasks: BackgroundTasks) -> OrchestrationResponse:
+        """Process orchestration request"""
+        request_id = f"req_{datetime.utcnow().timestamp()}"
+        
+        try:
+            logger.info("Processing orchestration request", 
+                       intent=request.intent, 
+                       platform=request.platform,
+                       request_id=request_id)
+            
+            # Route based on intent and platform
+            if request.platform == "twitter":
+                result = await self._handle_twitter_request(request)
+            elif request.platform == "youtube":
+                result = await self._handle_youtube_request(request)
+            elif request.platform == "tiktok":
+                result = await self._handle_tiktok_request(request)
+            else:
+                # Multi-platform or general request
+                result = await self._handle_general_request(request)
+            
+            return OrchestrationResponse(
+                success=True,
+                message="Request processed successfully",
+                data=result,
+                timestamp=datetime.utcnow(),
+                request_id=request_id
+            )
+            
+        except Exception as e:
+            logger.error("Request processing failed", 
+                        error=str(e), 
+                        request_id=request_id)
+            
+            return OrchestrationResponse(
+                success=False,
+                message=f"Request failed: {str(e)}",
+                data=None,
+                timestamp=datetime.utcnow(),
+                request_id=request_id
+            )
+    
+    async def _handle_twitter_request(self, request: OrchestrationRequest) -> Dict[str, Any]:
+        """Handle Twitter-specific requests"""
+        adapter = self.adapters['twitter']
+        
+        if request.intent == "post":
+            return await adapter.create_post(request.content)
+        elif request.intent == "analyze":
+            return await adapter.analyze_engagement(request.content)
+        else:
+            raise ValueError(f"Unknown Twitter intent: {request.intent}")
+    
+    async def _handle_youtube_request(self, request: OrchestrationRequest) -> Dict[str, Any]:
+        """Handle YouTube-specific requests"""
+        adapter = self.adapters['youtube']
+        
+        if request.intent == "upload":
+            return await adapter.upload_video(request.content)
+        elif request.intent == "analyze":
+            return await adapter.get_channel_analytics(request.content)
+        else:
+            raise ValueError(f"Unknown YouTube intent: {request.intent}")
+    
+    async def _handle_tiktok_request(self, request: OrchestrationRequest) -> Dict[str, Any]:
+        """Handle TikTok-specific requests"""
+        adapter = self.adapters['tiktok']
+        
+        if request.intent == "post":
+            return await adapter.create_post(request.content)
+        elif request.intent == "analyze":
+            return await adapter.analyze_performance(request.content)
+        else:
+            raise ValueError(f"Unknown TikTok intent: {request.intent}")
+    
+    async def _handle_general_request(self, request: OrchestrationRequest) -> Dict[str, Any]:
+        """Handle general or multi-platform requests"""
+        if request.intent == "campaign":
+            return await self._create_campaign(request.content)
+        elif request.intent == "analyze_all":
+            return await self._analyze_all_platforms(request.content)
+        else:
+            raise ValueError(f"Unknown general intent: {request.intent}")
+    
+    async def _create_campaign(self, content: Dict[str, Any]) -> Dict[str, Any]:
+        """Create multi-platform campaign"""
+        # Implementation for campaign creation
+        return {"campaign_id": "camp_123", "status": "created"}
+    
+    async def _analyze_all_platforms(self, content: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze performance across all platforms"""
+        results = {}
+        
+        for platform, adapter in self.adapters.items():
+            try:
+                if hasattr(adapter, 'get_analytics'):
+                    results[platform] = await adapter.get_analytics()
+            except Exception as e:
+                logger.error(f"Failed to get {platform} analytics", error=str(e))
+                results[platform] = {"error": str(e)}
+        
+        return results
+
+
+# Global orchestrator instance
+orchestrator = None
+
+def get_orchestrator() -> MayaOrchestrator:
+    """Get global orchestrator instance"""
+    global orchestrator
+    if orchestrator is None:
+        orchestrator = MayaOrchestrator()
+    return orchestrator
+
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    app = get_orchestrator().app
+    uvicorn.run(app, host="0.0.0.0", port=8000)
