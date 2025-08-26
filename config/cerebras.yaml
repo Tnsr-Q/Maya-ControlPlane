@@ -1,0 +1,254 @@
+# Cerebras AI Configuration for Maya-ControlPlane
+# Advanced configuration for Cerebras inference API integration
+
+# API Configuration
+api:
+  base_url: "https://api.cerebras.ai"
+  api_key: "${CEREBRAS_API_KEY}"  # Set via environment variable
+  timeout: 60
+  max_retries: 3
+  retry_delay: 1.0
+
+# Model Configuration
+models:
+  default: "llama3.1-70b"
+  
+  # Model routing for dynamic selection
+  routing:
+    simple: "llama3.1-8b"
+    moderate: "llama3.1-70b"
+    complex: "llama3.1-405b"
+    reasoning: "gpt-oss-120b"
+  
+  # Available models with capabilities
+  available:
+    - name: "llama3.1-8b"
+      max_tokens: 8192
+      cost_per_token: 0.00001
+      latency_ms: 50
+      capabilities: ["text_generation", "conversation"]
+    
+    - name: "llama3.1-70b"
+      max_tokens: 8192
+      cost_per_token: 0.0001
+      latency_ms: 100
+      capabilities: ["text_generation", "conversation", "analysis"]
+    
+    - name: "llama3.1-405b"
+      max_tokens: 8192
+      cost_per_token: 0.001
+      latency_ms: 200
+      capabilities: ["text_generation", "conversation", "analysis", "reasoning"]
+    
+    - name: "gpt-oss-120b"
+      max_tokens: 4096
+      cost_per_token: 0.0005
+      latency_ms: 150
+      capabilities: ["text_generation", "reasoning", "analysis"]
+      reasoning_effort: true
+
+# Generation Defaults
+generation:
+  max_tokens: 1000
+  temperature: 0.7
+  top_p: 0.9
+  top_k: null
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  stop: null
+  stream: false
+
+# Embeddings Configuration
+embeddings:
+  model: "text-embedding-3-large"
+  dimensions: 1024
+  encoding_format: "float"
+  normalize: true
+  task_type: "retrieval_document"
+  batch_size: 100
+
+# Fine-tuning Configuration
+fine_tuning:
+  default_base_model: "llama3.1-8b"
+  validation_split: 0.1
+  
+  # Method-specific defaults
+  instruction_tuning:
+    learning_rate: 1e-5
+    batch_size: 8
+    epochs: 3
+    warmup_steps: 100
+    save_steps: 500
+    eval_steps: 100
+  
+  dpo:
+    learning_rate: 5e-6
+    batch_size: 4
+    epochs: 2
+    beta: 0.1
+    warmup_steps: 50
+  
+  lora:
+    learning_rate: 1e-4
+    batch_size: 16
+    epochs: 5
+    lora_rank: 16
+    lora_alpha: 32
+    lora_dropout: 0.1
+
+# Performance Optimization
+performance:
+  precision_mode: "fp16"  # fp16, fp32, mixed
+  enable_streaming: true
+  enable_caching: true
+  cache_ttl: 3600  # seconds
+  batch_size: 32
+  max_concurrent_requests: 10
+  
+  # WSE optimization settings
+  wse:
+    enable_optimization: true
+    memory_bandwidth_utilization: 0.8
+    compute_utilization_target: 0.9
+    dataflow_optimization: true
+
+# Rate Limiting
+rate_limits:
+  requests_per_minute: 100
+  tokens_per_minute: 100000
+  concurrent_requests: 10
+  burst_allowance: 20
+
+# Monitoring and Metrics
+monitoring:
+  enable_metrics: true
+  metrics_window_minutes: 60
+  performance_tracking: true
+  error_tracking: true
+  
+  # Alerts
+  alerts:
+    high_latency_threshold_ms: 5000
+    low_throughput_threshold_tps: 10
+    error_rate_threshold: 0.05
+
+# Tool Calling Configuration
+tools:
+  enable_function_calling: true
+  max_tools_per_request: 10
+  tool_choice_default: "auto"
+  
+  # Built-in tools
+  builtin:
+    - name: "analyze_sentiment"
+      enabled: true
+    - name: "generate_hashtags"
+      enabled: true
+    - name: "extract_keywords"
+      enabled: true
+    - name: "summarize_content"
+      enabled: true
+
+# Content Generation Presets
+presets:
+  social_media:
+    twitter:
+      max_tokens: 280
+      temperature: 0.8
+      style: "conversational"
+      include_hashtags: true
+    
+    linkedin:
+      max_tokens: 1300
+      temperature: 0.6
+      style: "professional"
+      include_hashtags: false
+    
+    instagram:
+      max_tokens: 500
+      temperature: 0.8
+      style: "visual_focused"
+      include_hashtags: true
+    
+    tiktok:
+      max_tokens: 150
+      temperature: 0.9
+      style: "trendy"
+      include_hashtags: true
+  
+  content_types:
+    blog_post:
+      max_tokens: 2000
+      temperature: 0.6
+      style: "informative"
+    
+    video_script:
+      max_tokens: 1500
+      temperature: 0.7
+      style: "engaging"
+    
+    email_campaign:
+      max_tokens: 800
+      temperature: 0.5
+      style: "persuasive"
+
+# Integration Settings
+integration:
+  maya_orchestrator:
+    enable: true
+    priority: "high"
+    fallback_provider: "openai"
+  
+  webhook_endpoints:
+    - "/webhook/cerebras/completion"
+    - "/webhook/cerebras/embedding"
+    - "/webhook/cerebras/fine_tuning"
+  
+  event_streaming:
+    enable: true
+    topics:
+      - "cerebras.generation.started"
+      - "cerebras.generation.completed"
+      - "cerebras.generation.failed"
+      - "cerebras.fine_tuning.status"
+
+# Security Configuration
+security:
+  api_key_rotation: true
+  request_signing: false
+  rate_limit_by_ip: true
+  allowed_origins: ["*"]
+  
+  # Content filtering
+  content_filter:
+    enable: true
+    block_harmful_content: true
+    block_personal_info: true
+
+# Experimental Features
+experimental:
+  enable_speculative_decoding: true
+  enable_model_parallelism: false
+  enable_quantization: false
+  enable_pruning: false
+  
+  # Research features
+  research:
+    enable_new_models: false
+    enable_beta_features: false
+    participate_in_research: false
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  include_request_details: true
+  include_response_details: false  # Set to true for debugging
+  log_performance_metrics: true
+  log_errors: true
+  
+  # Log destinations
+  destinations:
+    - type: "file"
+      path: "logs/cerebras.log"
+    - type: "console"
+      format: "json"
