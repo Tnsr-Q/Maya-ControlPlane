@@ -21,7 +21,7 @@ from stubs.schemas import Campaign, Post, Event
 from adapters.twitter_adapter import TwitterAdapter
 from adapters.youtube_adapter import YouTubeAdapter
 from adapters.tiktok_adapter import TikTokAdapter
-from src.adapters.youtube_adapter_v2 import YouTubeAdapterV2
+# from src.adapters.youtube_adapter_v2 import YouTubeAdapterV2  # Temporarily disabled due to file corruption
 from src.maya_cp.helpers.cerebras_helper import CerebrasHelper, create_cerebras_helper, get_model_recommendations
 from helpers.webhook_helper import WebhookHelper
 
@@ -114,7 +114,8 @@ class MayaOrchestrator:
         try:
             # Initialize platform adapters
             self.adapters['twitter'] = TwitterAdapter(self.config.get('platforms', {}).get('twitter', {}))
-            self.adapters['youtube'] = YouTubeAdapterV2(self.config.get('platforms', {}).get('youtube', {}))
+            # self.adapters['youtube'] = YouTubeAdapterV2(self.config.get('platforms', {}).get('youtube', {}))  # Temporarily use basic adapter
+            self.adapters['youtube'] = YouTubeAdapter(self.config.get('platforms', {}).get('youtube', {}))
             self.adapters['tiktok'] = TikTokAdapter(self.config.get('platforms', {}).get('tiktok', {}))
             
             # Initialize helpers with advanced Cerebras integration
@@ -145,17 +146,17 @@ class MayaOrchestrator:
         
         # Include YouTube routes
         try:
-            from src.orchestrator.routes.youtube import router as youtube_router
-            self.app.include_router(youtube_router)
-            logger.info("YouTube routes included successfully")
+            # from src.orchestrator.routes.youtube import router as youtube_router  # Temporarily disabled due to file corruption
+            # self.app.include_router(youtube_router)
+            logger.info("YouTube routes temporarily disabled due to file corruption")
         except ImportError as e:
             logger.warning(f"Failed to import YouTube routes: {e}")
         
         # Include Twitter routes if they exist
         try:
-            from src.orchestrator.routes.twitter import router as twitter_router
-            self.app.include_router(twitter_router)
-            logger.info("Twitter routes included successfully")
+            # from src.orchestrator.routes.twitter import router as twitter_router  # Not implemented yet
+            # self.app.include_router(twitter_router)
+            logger.info("Twitter routes not yet implemented")
         except ImportError:
             logger.info("Twitter routes not found, skipping")
         
