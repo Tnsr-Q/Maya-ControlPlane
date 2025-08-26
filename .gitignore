@@ -146,6 +146,10 @@ temp/
 *.tmp
 *.temp
 
+# Zip uploads and extractions
+uploads/
+maya_zip_extract_*/
+
 # API keys and secrets
 .secrets
 *.key
