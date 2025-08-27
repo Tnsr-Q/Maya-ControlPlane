@@ -1,1 +1,184 @@
-"""\nYouTube Routes for Maya Control Plane Orchestrator\n\nComprehensive YouTube management endpoints with AI-powered content strategy,\ncomment management, analytics, and video operations.\n"""\n\nfrom fastapi import APIRouter, HTTPException, BackgroundTasks, Depends\nfrom pydantic import BaseModel, Field\nfrom typing import Dict, Any, List, Optional\nfrom datetime import datetime, timedelta\nimport structlog\n\nfrom src.adapters.youtube_adapter_v2 import YouTubeVideo, YouTubeComment, ContentStrategy\nfrom hub.logger import get_logger\n\nlogger = get_logger(\"youtube_routes\")\n\nrouter = APIRouter(prefix=\"/youtube\", tags=[\"YouTube\"])\n\n\n# Request/Response Models\nclass VideoUploadRequest(BaseModel):\n    title: str = Field(..., description=\"Video title\")\n    description: str = Field(..., description=\"Video description\")\n    file_path: str = Field(..., description=\"Path to video file\")\n    tags: Optional[List[str]] = Field(default=[], description=\"Video tags\")\n    category_id: str = Field(default=\"22\", description=\"YouTube category ID\")\n    privacy_status: str = Field(default=\"private\", description=\"Privacy status\")\n    playlist_ids: Optional[List[str]] = Field(default=[], description=\"Playlist IDs to add video to\")\n    scheduled_publish_time: Optional[datetime] = Field(default=None, description=\"Scheduled publish time\")\n\n\nclass VideoUpdateRequest(BaseModel):\n    video_id: str = Field(..., description=\"YouTube video ID\")\n    updates: Dict[str, Any] = Field(..., description=\"Updates to apply\")\n\n\nclass CommentReplyRequest(BaseModel):\n    comment_id: str = Field(..., description=\"Comment ID to reply to\")\n    reply_text: Optional[str] = Field(default=None, description=\"Reply text (auto-generated if not provided)\")\n\n\nclass ContentStrategyRequest(BaseModel):\n    focus: str = Field(..., description=\"Channel focus area\")\n    target_audience: str = Field(..., description=\"Target audience description\")\n    goals: List[str] = Field(..., description=\"Content goals\")\n\n\nclass PlaylistCreateRequest(BaseModel):\n    title: str = Field(..., description=\"Playlist title\")\n    description: str = Field(..., description=\"Playlist description\")\n    privacy_status: str = Field(default=\"public\", description=\"Playlist privacy\")\n\n\nclass AnalyticsRequest(BaseModel):\n    start_date: datetime = Field(..., description=\"Analytics start date\")\n    end_date: datetime = Field(default_factory=datetime.now, description=\"Analytics end date\")\n\n\n# Dependency to get YouTube adapter\nasync def get_youtube_adapter():\n    from hub.orchestrator import MayaOrchestrator\n    # This would be injected in a real application\n    # For now, we'll assume the orchestrator is available globally\n    pass\n\n\n@router.post(\"/upload\", response_model=Dict[str, Any])\nasync def upload_video(\n    request: VideoUploadRequest,\n    background_tasks: BackgroundTasks\n):\n    \"\"\"\n    Upload a video to YouTube with comprehensive metadata and playlist management.\n    \n    Features:\n    - Resumable uploads for large files\n    - Automatic playlist assignment\n    - Scheduled publishing\n    - Rate limiting and quota management\n    \"\"\"\n    try:\n        # Get YouTube adapter (would be injected in real app)\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        # Create video object\n        video = YouTubeVideo(\n            title=request.title,\n            description=request.description,\n            file_path=request.file_path,\n            tags=request.tags,\n            category_id=request.category_id,\n            privacy_status=request.privacy_status,\n            playlist_ids=request.playlist_ids,\n            scheduled_publish_time=request.scheduled_publish_time\n        )\n        \n        # Upload video\n        result = await youtube_adapter.upload_video(video)\n        \n        if result['success']:\n            logger.info(f\"Video uploaded successfully: {result['video_id']}\")\n            \n            # Schedule post-upload tasks\n            background_tasks.add_task(\n                _post_upload_tasks,\n                youtube_adapter,\n                result['video_id']\n            )\n        \n        return result\n        \n    except Exception as e:\n        logger.error(f\"Video upload failed: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.put(\"/video/update\", response_model=Dict[str, Any])\nasync def update_video_metadata(request: VideoUpdateRequest):\n    \"\"\"\n    Update video metadata including title, description, tags, and privacy settings.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        result = await youtube_adapter.update_video_metadata(\n            request.video_id,\n            request.updates\n        )\n        \n        return result\n        \n    except Exception as e:\n        logger.error(f\"Video update failed: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.get(\"/video/{video_id}/comments\", response_model=List[Dict[str, Any]])\nasync def get_video_comments(\n    video_id: str,\n    max_results: int = 100\n):\n    \"\"\"\n    Get comments for a video with AI-powered sentiment analysis and spam detection.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        comments = await youtube_adapter.get_video_comments(video_id, max_results)\n        \n        # Convert to dict format for JSON response\n        return [\n            {\n                'comment_id': comment.comment_id,\n                'video_id': comment.video_id,\n                'author_name': comment.author_name,\n                'text': comment.text,\n                'like_count': comment.like_count,\n                'reply_count': comment.reply_count,\n                'published_at': comment.published_at.isoformat() if comment.published_at else None,\n                'parent_id': comment.parent_id,\n                'sentiment_score': comment.sentiment_score,\n                'is_spam': comment.is_spam\n            }\n            for comment in comments\n        ]\n        \n    except Exception as e:\n        logger.error(f\"Failed to get comments: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.post(\"/comment/reply\", response_model=Dict[str, Any])\nasync def reply_to_comment(request: CommentReplyRequest):\n    \"\"\"\n    Reply to a comment with AI-generated or custom response.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        # Generate reply if not provided\n        reply_text = request.reply_text\n        if not reply_text:\n            # Get comment details for context\n            comments = await youtube_adapter.get_video_comments(\"\", max_results=1)  # This would need the video_id\n            # For now, generate a generic reply\n            reply_text = await youtube_adapter.generate_comment_reply(\n                YouTubeComment(\n                    comment_id=request.comment_id,\n                    video_id=\"\",\n                    author_name=\"\",\n                    text=\"\"\n                )\n            )\n        \n        result = await youtube_adapter.reply_to_comment(\n            request.comment_id,\n            reply_text\n        )\n        \n        return result\n        \n    except Exception as e:\n        logger.error(f\"Failed to reply to comment: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.post(\"/strategy/generate\", response_model=Dict[str, Any])\nasync def generate_content_strategy(request: ContentStrategyRequest):\n    \"\"\"\n    Generate AI-powered content strategy with video ideas, trending topics, and optimization recommendations.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        strategy = await youtube_adapter.generate_content_strategy(\n            request.focus,\n            request.target_audience,\n            request.goals\n        )\n        \n        return {\n            'video_ideas': strategy.video_ideas,\n            'trending_topics': strategy.trending_topics,\n            'optimal_posting_times': [t.isoformat() for t in strategy.optimal_posting_times],\n            'target_keywords': strategy.target_keywords,\n            'competitor_analysis': strategy.competitor_analysis,\n            'content_calendar': strategy.content_calendar\n        }\n        \n    except Exception as e:\n        logger.error(f\"Failed to generate content strategy: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.get(\"/analytics\", response_model=Dict[str, Any])\nasync def get_channel_analytics(\n    start_date: datetime,\n    end_date: Optional[datetime] = None\n):\n    \"\"\"\n    Get comprehensive channel analytics including performance metrics and insights.\n    \"\"\"\n    try:\n        if not end_date:\n            end_date = datetime.now()\n        \n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        analytics = await youtube_adapter.get_channel_analytics(start_date, end_date)\n        \n        return analytics\n        \n    except Exception as e:\n        logger.error(f\"Failed to get analytics: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.post(\"/playlist/create\", response_model=Dict[str, Any])\nasync def create_playlist(request: PlaylistCreateRequest):\n    \"\"\"\n    Create a new YouTube playlist.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        result = await youtube_adapter.create_playlist(\n            request.title,\n            request.description,\n            request.privacy_status\n        )\n        \n        return result\n        \n    except Exception as e:\n        logger.error(f\"Failed to create playlist: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.post(\"/playlist/{playlist_id}/add/{video_id}\", response_model=Dict[str, Any])\nasync def add_video_to_playlist(playlist_id: str, video_id: str):\n    \"\"\"\n    Add a video to a playlist.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        result = await youtube_adapter.add_video_to_playlist(video_id, playlist_id)\n        \n        return result\n        \n    except Exception as e:\n        logger.error(f\"Failed to add video to playlist: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\n@router.get(\"/health\", response_model=Dict[str, Any])\nasync def youtube_health_check():\n    \"\"\"\n    Check YouTube adapter health and API connectivity.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            return {\"status\": \"error\", \"message\": \"YouTube adapter not available\"}\n        \n        health = await youtube_adapter.health_check()\n        \n        return health\n        \n    except Exception as e:\n        logger.error(f\"Health check failed: {e}\")\n        return {\"status\": \"error\", \"message\": str(e)}\n\n\n# Background task functions\nasync def _post_upload_tasks(youtube_adapter, video_id: str):\n    \"\"\"Background tasks to run after video upload\"\"\"\n    try:\n        # Add to default playlists based on content analysis\n        # Generate optimized description\n        # Schedule social media promotion\n        # Set up comment monitoring\n        \n        logger.info(f\"Post-upload tasks completed for video: {video_id}\")\n        \n    except Exception as e:\n        logger.error(f\"Post-upload tasks failed: {e}\")\n\n\n# Campaign management endpoints\n@router.post(\"/campaign/create\", response_model=Dict[str, Any])\nasync def create_youtube_campaign(\n    campaign_data: Dict[str, Any],\n    background_tasks: BackgroundTasks\n):\n    \"\"\"\n    Create a comprehensive YouTube campaign with content strategy and automation.\n    \"\"\"\n    try:\n        from hub.orchestrator import MayaOrchestrator\n        orchestrator = MayaOrchestrator()\n        await orchestrator.initialize()\n        \n        youtube_adapter = orchestrator.adapters.get('youtube')\n        if not youtube_adapter:\n            raise HTTPException(status_code=503, detail=\"YouTube adapter not available\")\n        \n        # Generate content strategy\n        strategy = await youtube_adapter.generate_content_strategy(\n            campaign_data.get('focus', 'general'),\n            campaign_data.get('target_audience', 'general audience'),\n            campaign_data.get('goals', ['engagement'])\n        )\n        \n        # Schedule background tasks for campaign execution\n        background_tasks.add_task(\n            _execute_campaign,\n            youtube_adapter,\n            campaign_data,\n            strategy\n        )\n        \n        return {\n            'success': True,\n            'campaign_id': f\"yt_campaign_{datetime.now().strftime('%Y%m%d_%H%M%S')}\",\n            'strategy_preview': {\n                'video_ideas_count': len(strategy.video_ideas),\n                'trending_topics_count': len(strategy.trending_topics),\n                'target_keywords_count': len(strategy.target_keywords)\n            }\n        }\n        \n    except Exception as e:\n        logger.error(f\"Failed to create campaign: {e}\")\n        raise HTTPException(status_code=500, detail=str(e))\n\n\nasync def _execute_campaign(youtube_adapter, campaign_data: Dict[str, Any], strategy: ContentStrategy):\n    \"\"\"Execute YouTube campaign in background\"\"\"\n    try:\n        # Implement campaign execution logic\n        # - Schedule content creation\n        # - Set up automated responses\n        # - Monitor performance\n        # - Adjust strategy based on results\n        \n        logger.info(\"YouTube campaign execution started\")\n        \n    except Exception as e:\n        logger.error(f\"Campaign execution failed: {e}\")
+"""YouTube Route Handlers
+
+FastAPI route handlers specifically for YouTube operations
+"""
+
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+
+from adapters.youtube_adapter import YouTubeAdapter
+from stubs.schemas import Campaign
+from hub.logger import get_logger
+
+logger = get_logger("youtube_routes")
+router = APIRouter(prefix="/youtube", tags=["youtube"])
+
+# Dependency to get YouTube adapter
+async def get_youtube_adapter() -> YouTubeAdapter:
+    # In real implementation, this would be injected
+    config = {}
+    return YouTubeAdapter(config)
+
+@router.post("/upload")
+async def upload_youtube_video(
+    video_data: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    adapter: YouTubeAdapter = Depends(get_youtube_adapter)
+):
+    """Upload a video to YouTube"""
+    try:
+        # Validate required fields
+        required_fields = ['title', 'description']
+        for field in required_fields:
+            if field not in video_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required field: {field}"
+                )
+        
+        # Upload video
+        result = await adapter.upload_video(video_data)
+        
+        logger.info("YouTube video uploaded",
+                   video_id=result.get('video_id'),
+                   title=video_data.get('title'))
+        
+        # Schedule background tasks
+        if result.get('success'):
+            background_tasks.add_task(
+                track_video_performance,
+                result.get('video_id'),
+                video_data
+            )
+        
+        return {
+            "success": True,
+            "data": result,
+            "platform": "youtube",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to upload YouTube video", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/community-post")
+async def create_youtube_community_post(
+    post_data: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    adapter: YouTubeAdapter = Depends(get_youtube_adapter)
+):
+    """Create a YouTube community post"""
+    try:
+        result = await adapter.create_post(post_data)
+        
+        logger.info("YouTube community post created",
+                   post_id=result.get('post_id'))
+        
+        return {
+            "success": True,
+            "data": result,
+            "platform": "youtube",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to create YouTube community post", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/campaign")
+async def execute_youtube_campaign(
+    campaign_data: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    adapter: YouTubeAdapter = Depends(get_youtube_adapter)
+):
+    """Execute a YouTube campaign"""
+    try:
+        campaign = Campaign(**campaign_data)
+        
+        # Filter for YouTube content
+        youtube_posts = [
+            post for post in campaign.posts
+            if 'youtube' in post.platforms or post.platform == 'youtube'
+        ]
+        
+        if not youtube_posts:
+            raise HTTPException(
+                status_code=400,
+                detail="No YouTube content found in campaign"
+            )
+        
+        result = await adapter.execute_campaign(campaign)
+        
+        logger.info("YouTube campaign executed",
+                   campaign_id=campaign.id,
+                   content_count=len(youtube_posts))
+        
+        return {
+            "success": True,
+            "data": result,
+            "platform": "youtube",
+            "campaign_id": campaign.id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to execute YouTube campaign", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/analytics/{video_id}")
+async def get_youtube_analytics(
+    video_id: str,
+    adapter: YouTubeAdapter = Depends(get_youtube_adapter)
+):
+    """Get analytics for a YouTube video"""
+    try:
+        result = await adapter.get_analytics(video_id)
+        
+        return {
+            "success": True,
+            "data": result,
+            "platform": "youtube",
+            "video_id": video_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get YouTube analytics",
+                    video_id=video_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/health")
+async def youtube_health_check(
+    adapter: YouTubeAdapter = Depends(get_youtube_adapter)
+):
+    """Check YouTube API health"""
+    try:
+        result = await adapter.health_check()
+        
+        return {
+            "success": True,
+            "data": result,
+            "platform": "youtube",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("YouTube health check failed", error=str(e))
+        return {
+            "success": False,
+            "error": str(e),
+            "platform": "youtube",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+# Background task functions
+async def track_video_performance(video_id: str, video_data: Dict[str, Any]):
+    """Background task to track video performance"""
+    try:
+        logger.info("Tracking video performance", video_id=video_id)
+        # Implementation would go here
+    except Exception as e:
+        logger.error("Failed to track video performance",
+                    video_id=video_id, error=str(e))
