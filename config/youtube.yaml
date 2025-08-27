@@ -1,1 +1,168 @@
-# YouTube Integration Configuration\n\nyoutube:\n  # API Configuration\n  credentials_file: \"config/youtube_credentials.json\"\n  token_file: \"config/youtube_token.json\"\n  daily_quota: 10000\n  \n  # Default Video Settings\n  defaults:\n    privacy_status: \"private\"  # private, unlisted, public\n    category_id: \"22\"          # People & Blogs\n    language: \"en\"\n    default_tags: [\"maya\", \"ai\", \"automation\"]\n  \n  # Upload Settings\n  upload:\n    max_file_size_mb: 128000   # 128GB max\n    supported_formats: [\"mp4\", \"mov\", \"avi\", \"wmv\", \"flv\", \"webm\"]\n    chunk_size_mb: 10          # Upload chunk size\n    retry_attempts: 3\n    timeout_seconds: 3600      # 1 hour timeout\n  \n  # Content Moderation\n  moderation:\n    enabled: true\n    spam_threshold: 0.7\n    toxicity_threshold: 0.8\n    auto_moderate: false       # Require human approval\n    blocked_keywords: []\n    allowed_domains: []\n  \n  # Comment Management\n  comments:\n    auto_reply:\n      enabled: true\n      reply_threshold: 0.8     # Confidence threshold for auto-replies\n      max_replies_per_hour: 50\n      max_replies_per_video: 100\n      cooldown_minutes: 30     # Cooldown between replies to same user\n    \n    moderation:\n      auto_hide_spam: true\n      auto_hide_toxic: true\n      require_approval: false\n    \n    analysis:\n      sentiment_analysis: true\n      topic_extraction: true\n      intent_classification: true\n  \n  # Content Strategy\n  strategy:\n    ai_generation:\n      enabled: true\n      idea_generation: true\n      title_optimization: true\n      description_enhancement: true\n      tag_suggestions: true\n      thumbnail_concepts: true\n    \n    trending:\n      monitor_trends: true\n      trend_categories: [\"technology\", \"education\", \"entertainment\"]\n      update_frequency_hours: 6\n    \n    scheduling:\n      optimal_timing: true\n      timezone: \"UTC\"\n      posting_schedule:\n        - day: \"monday\"\n          time: \"10:00\"\n        - day: \"wednesday\" \n          time: \"14:00\"\n        - day: \"friday\"\n          time: \"16:00\"\n  \n  # Analytics\n  analytics:\n    collection:\n      enabled: true\n      metrics: [\"views\", \"likes\", \"comments\", \"shares\", \"watch_time\", \"subscribers\"]\n      retention_days: 365\n      update_frequency_hours: 24\n    \n    reporting:\n      daily_summary: true\n      weekly_analysis: true\n      monthly_strategy: true\n      performance_alerts: true\n    \n    thresholds:\n      low_performance_views: 100\n      high_performance_views: 10000\n      engagement_rate_target: 0.05\n  \n  # Playlist Management\n  playlists:\n    auto_organize: true\n    categories:\n      - name: \"Tutorials\"\n        keywords: [\"tutorial\", \"how-to\", \"guide\"]\n      - name: \"Reviews\"\n        keywords: [\"review\", \"comparison\", \"analysis\"]\n      - name: \"Updates\"\n        keywords: [\"update\", \"news\", \"announcement\"]\n  \n  # Safety and Compliance\n  safety:\n    content_scanning: true\n    copyright_check: true\n    community_guidelines: true\n    advertiser_friendly: true\n    \n    human_review:\n      required_for_upload: false\n      required_for_replies: false\n      escalation_threshold: 0.9\n  \n  # Rate Limiting\n  rate_limits:\n    uploads_per_day: 6\n    comments_per_minute: 10\n    searches_per_minute: 100\n    api_calls_per_minute: 200\n    \n    backoff:\n      initial_delay: 1\n      max_delay: 300\n      multiplier: 2\n  \n  # Integration Settings\n  integration:\n    cerebras:\n      enabled: true\n      model: \"llama3.1-70b\"\n      max_tokens: 2000\n      temperature: 0.7\n    \n    orchestrator:\n      enabled: true\n      webhook_url: \"http://localhost:8000/webhooks/youtube\"\n      events: [\"upload\", \"comment\", \"analytics\"]\n    \n    cross_platform:\n      twitter_promotion: true\n      content_syndication: false\n\n# Environment-specific overrides\ndevelopment:\n  youtube:\n    defaults:\n      privacy_status: \"private\"\n    safety:\n      human_review:\n        required_for_upload: true\n        required_for_replies: true\n\nproduction:\n  youtube:\n    defaults:\n      privacy_status: \"public\"\n    moderation:\n      auto_moderate: true\n    safety:\n      human_review:\n        required_for_upload: false\n        required_for_replies: false
+# YouTube Integration Configuration
+
+youtube:
+  # API Configuration
+  credentials_file: "config/youtube_credentials.json"
+  token_file: "config/youtube_token.json"
+  daily_quota: 10000
+  
+  # Default Video Settings
+  defaults:
+    privacy_status: "private"  # private, unlisted, public
+    category_id: "22"          # People & Blogs
+    language: "en"
+    default_tags: ["maya", "ai", "automation"]
+  
+  # Upload Settings
+  upload:
+    max_file_size_mb: 128000   # 128GB max
+    supported_formats: ["mp4", "mov", "avi", "wmv", "flv", "webm"]
+    chunk_size_mb: 10          # Upload chunk size
+    retry_attempts: 3
+    timeout_seconds: 3600      # 1 hour timeout
+  
+  # Content Moderation
+  moderation:
+    enabled: true
+    spam_threshold: 0.7
+    toxicity_threshold: 0.8
+    auto_moderate: false       # Require human approval
+    blocked_keywords: []
+    allowed_domains: []
+  
+  # Comment Management
+  comments:
+    auto_reply:
+      enabled: true
+      reply_threshold: 0.8     # Confidence threshold for auto-replies
+      max_replies_per_hour: 50
+      max_replies_per_video: 100
+      cooldown_minutes: 30     # Cooldown between replies to same user
+    
+    moderation:
+      auto_hide_spam: true
+      auto_hide_toxic: true
+      require_approval: false
+    
+    analysis:
+      sentiment_analysis: true
+      topic_extraction: true
+      intent_classification: true
+  
+  # Content Strategy
+  strategy:
+    ai_generation:
+      enabled: true
+      idea_generation: true
+      title_optimization: true
+      description_enhancement: true
+      tag_suggestions: true
+      thumbnail_concepts: true
+    
+    trending:
+      monitor_trends: true
+      trend_categories: ["technology", "education", "entertainment"]
+      update_frequency_hours: 6
+    
+    scheduling:
+      optimal_timing: true
+      timezone: "UTC"
+      posting_schedule:
+        - day: "monday"
+          time: "10:00"
+        - day: "wednesday" 
+          time: "14:00"
+        - day: "friday"
+          time: "16:00"
+  
+  # Analytics
+  analytics:
+    collection:
+      enabled: true
+      metrics: ["views", "likes", "comments", "shares", "watch_time", "subscribers"]
+      retention_days: 365
+      update_frequency_hours: 24
+    
+    reporting:
+      daily_summary: true
+      weekly_analysis: true
+      monthly_strategy: true
+      performance_alerts: true
+    
+    thresholds:
+      low_performance_views: 100
+      high_performance_views: 10000
+      engagement_rate_target: 0.05
+  
+  # Playlist Management
+  playlists:
+    auto_organize: true
+    categories:
+      - name: "Tutorials"
+        keywords: ["tutorial", "how-to", "guide"]
+      - name: "Reviews"
+        keywords: ["review", "comparison", "analysis"]
+      - name: "Updates"
+        keywords: ["update", "news", "announcement"]
+  
+  # Safety and Compliance
+  safety:
+    content_scanning: true
+    copyright_check: true
+    community_guidelines: true
+    advertiser_friendly: true
+    
+    human_review:
+      required_for_upload: false
+      required_for_replies: false
+      escalation_threshold: 0.9
+  
+  # Rate Limiting
+  rate_limits:
+    uploads_per_day: 6
+    comments_per_minute: 10
+    searches_per_minute: 100
+    api_calls_per_minute: 200
+    
+    backoff:
+      initial_delay: 1
+      max_delay: 300
+      multiplier: 2
+  
+  # Integration Settings
+  integration:
+    cerebras:
+      enabled: true
+      model: "llama3.1-70b"
+      max_tokens: 2000
+      temperature: 0.7
+    
+    orchestrator:
+      enabled: true
+      webhook_url: "http://localhost:8000/webhooks/youtube"
+      events: ["upload", "comment", "analytics"]
+    
+    cross_platform:
+      twitter_promotion: true
+      content_syndication: false
+
+# Environment-specific overrides
+development:
+  youtube:
+    defaults:
+      privacy_status: "private"
+    safety:
+      human_review:
+        required_for_upload: true
+        required_for_replies: true
+
+production:
+  youtube:
+    defaults:
+      privacy_status: "public"
+    moderation:
+      auto_moderate: true
+    safety:
+      human_review:
+        required_for_upload: false
+        required_for_replies: false
