@@ -2,11 +2,11 @@
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.5.0
-python-multipart==0.0.6
+python-multipart==0.0.18
 
 # HTTP and API clients
 httpx==0.25.2
-requests==2.31.0
+requests==2.32.4
 
 # Configuration and environment
 pyyaml==6.0.1
@@ -45,7 +45,7 @@ pytest-mock==3.12.0
 httpx-mock==0.7.0
 
 # Development tools
-black==23.11.0
+black==24.3.0
 flake8==6.1.0
 mypy==1.7.1
 
