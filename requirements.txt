@@ -32,6 +32,10 @@ anthropic==0.7.7
 # Audio processing (for audio-first features)
 pydub==0.25.1
 speechrecognition==3.10.0
+# BlackHole audio bridge dependencies
+sounddevice==0.4.6
+pyttsx3==2.90
+numpy>=1.21.0
 
 # Async and scheduling
 asyncio-mqtt==0.16.1
