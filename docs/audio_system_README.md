@@ -24,11 +24,15 @@ The Maya Control Plane Audio-First System is a comprehensive social media manage
 - Technical data to natural language translation
 - Dynamic model selection and optimization
 
-### 4. **Maya Audio Bridge**
-- Browser automation for sesame.com interface
-- Real-time conversation management
-- Context injection and preservation
-- Session state management
+### 4. **Maya System Audio Bridge** 🆕
+**Professional BlackHole Audio System:**
+- BlackHole virtual audio device for macOS (48kHz professional quality)
+- VB-Cable support for Windows, PulseAudio for Linux
+- Real-time system audio capture (not just browser)
+- Continuous audio streaming with proper buffering
+- System TTS integration for Cerebras output
+- One-command setup with `python quick_setup.py`
+- No browser automation dependencies required
 
 ### 5. **Redis Conversation Threading**
 - Multi-level conversation context storage
@@ -59,9 +63,12 @@ Maya Control Plane Audio-First System
 ├── Audio Components (helpers/)
 │   ├── AssemblyAI Helper (assemblyai_helper.py)
 │   ├── Redis Helper (redis_helper.py)
-│   ├── Maya Audio Bridge (maya_audio_bridge.py)
+│   ├── Maya System Audio Bridge (maya_audio_bridge.py) 🆕
 │   ├── Live Streaming Coordinator (live_streaming_coordinator.py)
 │   └── Integration Orchestrator (integration_orchestrator.py)
+├── Audio Setup System (setup/) 🆕
+│   ├── Audio Device Setup (audio_setup.py)
+│   └── Quick Setup Script (../quick_setup.py)
 ├── Enhanced Adapters (adapters/)
 │   ├── Enhanced Twitter Adapter (twitter_adapter.py)
 │   └── Enhanced Cerebras Helper (cerebras_helper.py)
@@ -87,8 +94,39 @@ python demo_basic_system.py
 # Run comprehensive demo (requires dependencies)
 python demo_maya_audio_system.py
 
-# Start the orchestrator
+# Set up new BlackHole audio system (one-time setup)
+python quick_setup.py
+
+# Start the orchestrator with audio support
 python -m hub.orchestrator
+```
+
+### New Audio System Setup 🆕
+
+**1. Quick Setup (Recommended):**
+```bash
+# Install and configure audio system
+python quick_setup.py
+
+# Validate setup
+python quick_setup.py --validate
+
+# Test audio capture
+python quick_setup.py --test
+```
+
+**2. Manual Setup:**
+```bash
+# Install dependencies
+pip install sounddevice==0.4.6 pyttsx3==2.90 numpy>=1.21.0
+
+# macOS: Install BlackHole
+brew install --cask blackhole-2ch
+
+# Windows: Download VB-Cable from https://vb-audio.com/Cable/
+
+# Linux: Create PulseAudio virtual sink
+pactl load-module module-null-sink sink_name=maya_virtual_sink
 ```
 
 ### Production Deployment
@@ -171,7 +209,29 @@ redis:
     working_memory: 3600  # 1 hour
 ```
 
-### Maya Bridge Configuration
+### Maya System Audio Bridge Configuration 🆕
+```yaml
+maya_bridge:
+  # Audio device settings
+  sample_rate: 48000  # Professional quality
+  channels: 2         # Stereo
+  buffer_size: 1024   # Audio buffer size
+  
+  # Platform-specific device names
+  device_name: ${MAYA_AUDIO_DEVICE:-auto}  # auto-detects platform
+  # macOS: "BlackHole 2ch"
+  # Windows: "CABLE Output (VB-Audio Virtual Cable)"  
+  # Linux: "maya_virtual_sink.monitor"
+  
+  # TTS settings
+  tts_rate: 180      # Words per minute
+  tts_volume: 0.8    # 80% volume
+  
+  # Processing settings
+  use_stub: ${USE_STUBS:-true}
+```
+
+### Legacy Maya Bridge Configuration (Deprecated)
 ```yaml
 maya_bridge:
   sesame_url: ${SESAME_URL:-https://sesame.com}
