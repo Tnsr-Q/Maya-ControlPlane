@@ -25,6 +25,14 @@ from src.adapters.youtube_adapter_v2 import YouTubeAdapterV2
 from src.maya_cp.helpers.cerebras_helper import CerebrasHelper, create_cerebras_helper, get_model_recommendations
 from helpers.webhook_helper import WebhookHelper
 
+# Import new audio-first components
+from helpers.config_loader import create_component_configs, validate_audio_system_config
+from helpers.assemblyai_helper import create_assemblyai_helper
+from helpers.redis_helper import create_redis_helper
+from helpers.maya_audio_bridge import create_maya_audio_bridge
+from helpers.live_streaming_coordinator import create_live_streaming_coordinator
+from helpers.integration_orchestrator import create_integration_orchestrator as create_audio_orchestrator
+
 
 # Configure structured logging
 structlog.configure(
@@ -79,14 +87,20 @@ class MayaOrchestrator:
         self.config = self._load_config(config_path)
         self.adapters = {}
         self.helpers = {}
+        
+        # Audio-first system components
+        self.audio_components = {}
+        self.audio_orchestrator = None
+        
         self.app = FastAPI(
             title="Maya Control Plane",
-            description="AI-powered social media orchestration system",
-            version="0.1.0"
+            description="AI-powered social media orchestration system with audio-first interactions",
+            version="0.2.0"
         )
         
         # Initialize components asynchronously
         self._components_initialized = False
+        self._audio_system_initialized = False
         self._setup_routes()
         
         logger.info("Maya Orchestrator initialized", config_loaded=bool(self.config))
@@ -96,6 +110,10 @@ class MayaOrchestrator:
         if not self._components_initialized:
             await self._initialize_components()
             self._components_initialized = True
+        
+        if not self._audio_system_initialized:
+            await self._initialize_audio_system()
+            self._audio_system_initialized = True
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from YAML file"""
@@ -139,6 +157,53 @@ class MayaOrchestrator:
         except Exception as e:
             logger.error("Failed to initialize components", error=str(e))
             raise
+    
+    async def _initialize_audio_system(self):
+        """Initialize audio-first system components"""
+        try:
+            logger.info("Initializing audio-first system components...")
+            
+            # Validate audio system configuration
+            if not validate_audio_system_config():
+                logger.warning("Audio system configuration validation failed, using default settings")
+            
+            # Get component configurations
+            configs = create_component_configs()
+            
+            # Initialize audio components
+            self.audio_components['assemblyai'] = create_assemblyai_helper(configs['assemblyai'])
+            self.audio_components['redis'] = create_redis_helper(configs['redis'])
+            self.audio_components['maya_bridge'] = create_maya_audio_bridge(configs['maya_bridge'])
+            self.audio_components['live_streaming'] = create_live_streaming_coordinator(configs['live_streaming'])
+            
+            # Initialize audio orchestrator
+            self.audio_orchestrator = create_audio_orchestrator(configs['orchestrator'])
+            
+            # Set up audio orchestrator with all helpers
+            self.audio_orchestrator.set_helpers(
+                twitter_adapter=self.adapters.get('twitter'),
+                cerebras_helper=self.helpers.get('cerebras'),
+                assemblyai_helper=self.audio_components['assemblyai'],
+                maya_bridge=self.audio_components['maya_bridge'],
+                redis_helper=self.audio_components['redis'],
+                live_streaming_coordinator=self.audio_components['live_streaming']
+            )
+            
+            # Set up live streaming coordinator dependencies
+            self.audio_components['live_streaming'].set_dependencies(
+                assemblyai_helper=self.audio_components['assemblyai'],
+                maya_bridge=self.audio_components['maya_bridge'],
+                redis_helper=self.audio_components['redis']
+            )
+            
+            logger.info("Audio-first system initialized successfully", 
+                       components=len(self.audio_components),
+                       orchestrator_ready=bool(self.audio_orchestrator))
+            
+        except Exception as e:
+            logger.error("Failed to initialize audio system", error=str(e))
+            # Don't raise - allow orchestrator to work without audio system
+            logger.warning("Continuing without audio-first features")
     
     def _setup_routes(self):
         """Setup FastAPI routes"""
@@ -297,6 +362,277 @@ class MayaOrchestrator:
             except Exception as e:
                 logger.error("Failed to get metrics", error=str(e))
                 raise HTTPException(status_code=500, detail=str(e))
+        
+        # Audio-First System Endpoints
+        
+        @self.app.post("/audio/transcribe")
+        async def transcribe_audio(file_path: str, options: Dict[str, Any] = None):
+            """Transcribe audio file with AssemblyAI"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('assemblyai'):
+                    raise HTTPException(status_code=503, detail="AssemblyAI not available")
+                
+                result = await self.audio_components['assemblyai'].transcribe_audio_file(
+                    file_path, options or {}
+                )
+                return result
+                
+            except Exception as e:
+                logger.error("Audio transcription failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/audio/realtime/start")
+        async def start_realtime_transcription():
+            """Start real-time audio transcription"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('assemblyai'):
+                    raise HTTPException(status_code=503, detail="AssemblyAI not available")
+                
+                def on_transcript(data):
+                    logger.info("Real-time transcript", text=data.get('text', '')[:50])
+                
+                started = await self.audio_components['assemblyai'].start_realtime_transcription(on_transcript)
+                return {"started": started, "status": "real-time transcription active"}
+                
+            except Exception as e:
+                logger.error("Failed to start real-time transcription", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/maya/connect")
+        async def connect_to_maya(credentials: Dict[str, Any] = None):
+            """Connect to Maya via audio bridge"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('maya_bridge'):
+                    raise HTTPException(status_code=503, detail="Maya Audio Bridge not available")
+                
+                connected = await self.audio_components['maya_bridge'].connect_to_maya(credentials)
+                
+                if connected:
+                    state = await self.audio_components['maya_bridge'].get_maya_interface_state()
+                    return {"connected": True, "session_id": state.get('session_id'), "state": state}
+                else:
+                    return {"connected": False, "error": "Failed to connect to Maya"}
+                
+            except Exception as e:
+                logger.error("Maya connection failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/maya/send_message")
+        async def send_message_to_maya(message: str, use_tts: bool = True, wait_for_response: bool = True):
+            """Send message to Maya with optional TTS"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('maya_bridge'):
+                    raise HTTPException(status_code=503, detail="Maya Audio Bridge not available")
+                
+                response = await self.audio_components['maya_bridge'].send_message_to_maya(
+                    message, use_tts, wait_for_response
+                )
+                return response
+                
+            except Exception as e:
+                logger.error("Failed to send message to Maya", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/conversation/create")
+        async def create_conversation_thread(thread_type: str, title: str, platform_data: Dict[str, Any]):
+            """Create conversation thread in Redis"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('redis'):
+                    raise HTTPException(status_code=503, detail="Redis not available")
+                
+                from helpers.redis_helper import ThreadType
+                thread_type_enum = ThreadType(thread_type)
+                
+                thread = await self.audio_components['redis'].create_thread(
+                    thread_type_enum, title, platform_data
+                )
+                
+                return {
+                    "thread_id": thread.id,
+                    "type": thread.type.value,
+                    "title": thread.title,
+                    "created_at": thread.created_at.isoformat()
+                }
+                
+            except Exception as e:
+                logger.error("Failed to create conversation thread", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/conversation/{thread_id}/message")
+        async def add_conversation_message(thread_id: str, role: str, content: str, platform: str, metadata: Dict[str, Any] = None):
+            """Add message to conversation thread"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('redis'):
+                    raise HTTPException(status_code=503, detail="Redis not available")
+                
+                from helpers.redis_helper import MessageRole
+                role_enum = MessageRole(role)
+                
+                message = await self.audio_components['redis'].add_message(
+                    thread_id, role_enum, content, platform, metadata or {}
+                )
+                
+                if message:
+                    return {
+                        "message_id": message.id,
+                        "thread_id": message.thread_id,
+                        "role": message.role.value,
+                        "timestamp": message.timestamp.isoformat()
+                    }
+                else:
+                    raise HTTPException(status_code=404, detail="Thread not found")
+                
+            except Exception as e:
+                logger.error("Failed to add conversation message", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/conversation/{thread_id}/context")
+        async def get_conversation_context(thread_id: str, max_messages: int = 10):
+            """Get conversation context"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('redis'):
+                    raise HTTPException(status_code=503, detail="Redis not available")
+                
+                context = await self.audio_components['redis'].get_conversation_context(
+                    thread_id, max_messages
+                )
+                return context
+                
+            except Exception as e:
+                logger.error("Failed to get conversation context", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/stream/start")
+        async def start_live_stream(platform: str, config: Dict[str, Any]):
+            """Start live stream"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('live_streaming'):
+                    raise HTTPException(status_code=503, detail="Live Streaming not available")
+                
+                from helpers.live_streaming_coordinator import StreamPlatform
+                platform_enum = StreamPlatform(platform)
+                
+                result = await self.audio_components['live_streaming'].start_stream(
+                    platform_enum, config
+                )
+                return result
+                
+            except Exception as e:
+                logger.error("Failed to start live stream", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/stream/{stream_id}/status")
+        async def get_stream_status(stream_id: str):
+            """Get live stream status"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('live_streaming'):
+                    raise HTTPException(status_code=503, detail="Live Streaming not available")
+                
+                status = await self.audio_components['live_streaming'].get_stream_status(stream_id)
+                return status
+                
+            except Exception as e:
+                logger.error("Failed to get stream status", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/stream/{stream_id}/highlights")
+        async def get_stream_highlights(stream_id: str, time_window: int = 300):
+            """Get key moments from live stream"""
+            await self.initialize()
+            try:
+                if not self.audio_components.get('live_streaming'):
+                    raise HTTPException(status_code=503, detail="Live Streaming not available")
+                
+                highlights = await self.audio_components['live_streaming'].identify_key_moments(
+                    stream_id, time_window
+                )
+                return {"highlights": highlights, "count": len(highlights)}
+                
+            except Exception as e:
+                logger.error("Failed to get stream highlights", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/workflow/twitter_mention")
+        async def execute_twitter_mention_workflow(mention_data: Dict[str, Any], config: Dict[str, Any] = None):
+            """Execute Twitter mention response workflow"""
+            await self.initialize()
+            try:
+                if not self.audio_orchestrator:
+                    raise HTTPException(status_code=503, detail="Audio Orchestrator not available")
+                
+                result = await self.audio_orchestrator.execute_twitter_mention_workflow(
+                    mention_data, config or {}
+                )
+                return result
+                
+            except Exception as e:
+                logger.error("Twitter mention workflow failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/workflow/audio_conversation")
+        async def execute_audio_conversation_workflow(audio_data: bytes, context: Dict[str, Any] = None):
+            """Execute audio conversation workflow"""
+            await self.initialize()
+            try:
+                if not self.audio_orchestrator:
+                    raise HTTPException(status_code=503, detail="Audio Orchestrator not available")
+                
+                result = await self.audio_orchestrator.execute_audio_conversation_workflow(
+                    audio_data, context or {}
+                )
+                return result
+                
+            except Exception as e:
+                logger.error("Audio conversation workflow failed", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/workflow/{workflow_id}/status")
+        async def get_workflow_status(workflow_id: str):
+            """Get workflow status"""
+            await self.initialize()
+            try:
+                if not self.audio_orchestrator:
+                    raise HTTPException(status_code=503, detail="Audio Orchestrator not available")
+                
+                status = await self.audio_orchestrator.get_workflow_status(workflow_id)
+                return status
+                
+            except Exception as e:
+                logger.error("Failed to get workflow status", error=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/audio/system/health")
+        async def audio_system_health():
+            """Check audio system health"""
+            await self.initialize()
+            
+            health_status = {
+                "audio_system_initialized": self._audio_system_initialized,
+                "components": {},
+                "orchestrator": bool(self.audio_orchestrator)
+            }
+            
+            # Check each audio component
+            for component_name, component in self.audio_components.items():
+                try:
+                    if hasattr(component, 'health_check'):
+                        health = await component.health_check()
+                        health_status["components"][component_name] = health
+                    else:
+                        health_status["components"][component_name] = {"status": "available"}
+                except Exception as e:
+                    health_status["components"][component_name] = {"status": "error", "error": str(e)}
+            
+            return health_status
         
         @self.app.post("/maya/intent")
         async def process_maya_intent(intent_data: Dict[str, Any]):

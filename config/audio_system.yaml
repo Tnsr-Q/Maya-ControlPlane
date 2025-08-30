@@ -1,0 +1,168 @@
+# AssemblyAI Configuration
+assemblyai:
+  api_key: ${ASSEMBLYAI_API_KEY:-demo_key}
+  base_url: "https://api.assemblyai.com/v2"
+  websocket_url: "wss://api.assemblyai.com/v2/realtime/ws"
+  
+  # Transcription options
+  default_options:
+    sentiment_analysis: true
+    entity_detection: true
+    speaker_labels: false
+    auto_highlights: true
+    punctuate: true
+    format_text: true
+  
+  # Real-time processing
+  realtime:
+    sample_rate: 16000
+    chunk_size: 4096
+    silence_threshold: 0.01
+    
+  # Audio processing
+  audio:
+    supported_formats: ["wav", "mp3", "mp4", "m4a", "flac"]
+    max_file_size_mb: 500
+    quality: "high"
+
+# Redis Configuration
+redis:
+  url: ${REDIS_URL:-redis://localhost:6379}
+  db: ${REDIS_DB:-0}
+  password: ${REDIS_PASSWORD:-}
+  
+  # TTL settings (in seconds)
+  ttl:
+    default: 604800  # 7 days
+    working_memory: 3600  # 1 hour
+    conversation_context: 86400  # 24 hours
+    stream_data: 7200  # 2 hours
+  
+  # Connection settings
+  connection:
+    max_connections: 20
+    retry_on_timeout: true
+    socket_timeout: 30
+    socket_connect_timeout: 30
+
+# Maya Audio Bridge Configuration
+maya_bridge:
+  sesame_url: ${SESAME_URL:-https://sesame.com}
+  
+  # Browser automation
+  browser:
+    headless: ${MAYA_HEADLESS:-false}
+    window_size: "1920,1080"
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    
+  # Audio settings
+  audio:
+    input_device: ${AUDIO_INPUT_DEVICE:-default}
+    output_device: ${AUDIO_OUTPUT_DEVICE:-default}
+    sample_rate: 16000
+    channels: 1
+    
+  # Conversation settings
+  conversation:
+    timeout: 30  # seconds
+    max_retries: 3
+    response_wait_time: 10  # seconds
+
+# Live Streaming Configuration
+live_streaming:
+  # Platform settings
+  platforms:
+    twitter_spaces:
+      enabled: true
+      max_duration: 14400  # 4 hours
+      participant_limit: 13
+      
+    youtube_live:
+      enabled: true
+      max_duration: 43200  # 12 hours
+      quality: "1080p"
+      
+  # Processing settings
+  processing:
+    max_concurrent_streams: 3
+    transcript_buffer_size: 100
+    highlight_threshold: 0.7
+    
+  # Recording settings
+  recording:
+    auto_record: false
+    format: "mp4"
+    quality: "high"
+
+# Integration Orchestrator Configuration
+orchestrator:
+  # Workflow settings
+  workflows:
+    max_concurrent: 10
+    default_timeout: 300  # 5 minutes
+    retry_attempts: 2
+    
+  # Context preservation
+  context:
+    preservation_ttl: 3600  # 1 hour
+    max_context_size: 10000  # characters
+    
+  # Monitoring
+  monitoring:
+    health_check_interval: 60  # seconds
+    metrics_retention: 86400  # 24 hours
+
+# Enhanced Twitter Settings
+twitter_enhanced:
+  # Monitoring
+  monitoring:
+    keywords: ["maya", "ai", "social media", "automation"]
+    mention_check_interval: 60  # seconds
+    max_mentions_per_batch: 50
+    
+  # Priority classification
+  priority:
+    verified_user_boost: 0.2
+    follower_threshold_high: 10000
+    follower_threshold_medium: 1000
+    engagement_threshold: 5
+    
+  # Response settings
+  response:
+    max_response_time: 3600  # 1 hour for high priority
+    auto_respond: false
+    response_templates: true
+
+# Cerebras Enhanced Settings
+cerebras_enhanced:
+  # Analysis settings
+  analysis:
+    sentiment_confidence_threshold: 0.7
+    intent_confidence_threshold: 0.8
+    context_window_size: 2048
+    
+  # Tool registration
+  tools:
+    twitter_sentiment: true
+    conversation_context: true
+    trending_analysis: true
+    priority_classification: true
+    intent_analysis: true
+    
+  # Performance settings
+  performance:
+    batch_size: 10
+    parallel_requests: 3
+    timeout: 30  # seconds
+
+# Development Settings
+development:
+  use_stubs: ${USE_STUBS:-true}
+  log_level: ${LOG_LEVEL:-INFO}
+  debug_mode: ${DEBUG_MODE:-false}
+  
+  # Demo settings
+  demo:
+    simulate_delays: true
+    sample_data: true
+    verbose_output: true
